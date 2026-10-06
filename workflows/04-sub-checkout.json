@@ -1,0 +1,269 @@
+{
+  "name": "04 [pedido-demo-rafael] Sub - Checkout",
+  "description": "Sub-workflow do orquestrador demo-food: detecta confirmacao/alteracao do pedido via LLM, registra pedido fechado na planilha Google Sheets (reaproveitando a mesma aba \"pedidos\" do bot WhatsApp legado), fecha ou reabre o estado no Redis e responde.",
+  "nodes": [
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "telefone"
+            },
+            {
+              "name": "itens"
+            },
+            {
+              "name": "cep"
+            },
+            {
+              "name": "endereco_resolvido"
+            },
+            {
+              "name": "distancia_km"
+            },
+            {
+              "name": "taxa_entrega"
+            },
+            {
+              "name": "total"
+            },
+            {
+              "name": "nome"
+            }
+          ]
+        }
+      },
+      "name": "Recebeu do Orquestrador",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -544,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "const ctx = $('Recebeu do Orquestrador').first().json;\n\n// 1. Tratamento flexível para os itens\nlet itensFormatado = \"1x Item\";\nconst rawItens = ctx.itens || ctx.itens_pendentes_json || ctx.carrinho || ctx.produtos || ctx.pedido;\n\nif (rawItens) {\n  if (typeof rawItens === 'string') {\n    itensFormatado = rawItens;\n  } else if (Array.isArray(rawItens)) {\n    itensFormatado = rawItens.map(item => {\n      const qtd = item.quantidade || item.qtd || 1;\n      const nome = item.nome || item.produto || item.descricao || 'Item';\n      const precoUnit = item.preco || item.valor || 0;\n      const totalItem = precoUnit * qtd;\n      const precoFormatado = 'R$ ' + Number(totalItem).toFixed(2).replace('.', ',');\n      return `${qtd}x ${nome} - ${precoFormatado}`;\n    }).join('\\n');\n  }\n} else {\n  itensFormatado = ctx.query || ctx.resumo_pedido || \"1x Pedido Geral\";\n}\n\n// 2. Garante a captura correta do Nome, Endereço e Telefone em todas as variações possíveis de chaves\nconst nomeFinal = ctx.nome || ctx.pushName || ctx.nome_cliente || ctx.client_name || \"Não informado\";\nconst telefoneFinal = ctx.telefone || ctx.from || ctx.whatsapp || ctx.sender || ctx.numero_telefone || \"Não informado\";\nconst enderecoFinal = ctx.endereco_resolvido || ctx.endereco_validado || ctx.endereco || \"Não informado\";\n\n// 3. Retorno formatado para a planilha (com o novo campo nome)\nreturn [{\n  data_hora: new Date().toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' }),\n  nome: nomeFinal,\n  telefone: telefoneFinal,\n  itens: itensFormatado,\n  cep: ctx.cep || ctx.cep_utilizado || ctx.query_cep || \"\",\n  endereco_resolvido: enderecoFinal,\n  distancia_km: ctx.distancia_km !== undefined ? ctx.distancia_km : 0,\n  taxa_entrega: ctx.taxa_entrega !== undefined ? ctx.taxa_entrega : 0,\n  total: ctx.total !== undefined ? ctx.total : (ctx.total_pedido || 0)\n}];"
+      },
+      "name": "Formatar Itens Legiveis",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        -336,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "REPLACE_ME",
+          "mode": "list",
+          "cachedResultName": "demo-comida",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Pedidos",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/REPLACE_ME/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "data_hora": "={{ $now.setZone('America/Sao_Paulo').toFormat('dd/MM/yyyy HH:mm:ss') }}",
+            "nome": "={{ $json.nome }}",
+            "telefone": "={{ $json.telefone }}",
+            "itens": "={{ $json.itens }}",
+            "cep": "={{ $json.cep }}",
+            "endereco_resolvido": "={{ $json.endereco_resolvido }}",
+            "distancia_km": "={{ $json.distancia_km }}",
+            "taxa_entrega": "={{ $json.taxa_entrega }}",
+            "total": "={{ $json.total }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "displayName": "data_hora",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "nome",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "telefone",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "itens",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "cep",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "endereco_resolvido",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "distancia_km",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "taxa_entrega",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "displayName": "total",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "name": "Registrar Pedido Fechado no Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -96,
+        1104
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{ 'demo-food:estado:' + $('Recebeu do Orquestrador').item.json.sessionId }}",
+        "value": "={{ JSON.stringify({ estado: 'FECHADO', itens_pendentes: [], cep_informado: null, numero_informado: null, endereco_resolvido: null, distancia_km: null, taxa_entrega: null, total: null, upsell_perguntado: false, atualizado_em: $now.toISO() }) }}"
+      },
+      "name": "Fechar Estado da Conversa (Redis)",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [
+        112,
+        1104
+      ],
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "sucesso",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "name": "mensagem_sistema",
+              "value": "Pedido salvo com sucesso na planilha e carrinho resetado.",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Retorno - Sucesso",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        336,
+        1104
+      ]
+    }
+  ],
+  "connections": {
+    "Recebeu do Orquestrador": {
+      "main": [
+        [
+          {
+            "node": "Formatar Itens Legiveis",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Formatar Itens Legiveis": {
+      "main": [
+        [
+          {
+            "node": "Registrar Pedido Fechado no Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Registrar Pedido Fechado no Sheets": {
+      "main": [
+        [
+          {
+            "node": "Fechar Estado da Conversa (Redis)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fechar Estado da Conversa (Redis)": {
+      "main": [
+        [
+          {
+            "node": "Retorno - Sucesso",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  }
+}
+

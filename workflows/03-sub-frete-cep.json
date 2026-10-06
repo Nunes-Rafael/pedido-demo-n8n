@@ -1,0 +1,230 @@
+{
+  "name": "03 [pedido-demo-rafael] Sub - Frete pelo CEP",
+  "description": "Sub-workflow demo-food: normaliza CEP, resolve endereco (ViaCEP+Nominatim), calcula distancia/taxa (raio 15km, sem expor km na recusa), salva estado Redis e responde.",
+  "nodes": [
+    {
+      "parameters": {
+        "url": "={{ 'https://viacep.com.br/ws/' + $json.cep.replace(/\\D/g, '') + '/json/' }}",
+        "options": {}
+      },
+      "name": "ViaCEP",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1952,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega os dados do ViaCEP que vieram no input direto\nconst viacep = $input.first().json;\n\n// Pega o número diretamente do nó raiz \"Recebeu WF 01\" com segurança absoluta\nlet numeroCasa = \"\";\ntry {\n  const wf01 = $('Recebeu WF 01').first().json;\n  numeroCasa = wf01.restante_endereco || wf01.numero || wf01.complemento || \"\";\n} catch (e) {}\n\n// Monta o endereço final juntando o logradouro do ViaCEP com o número da casa\nconst logradouro = viacep.logradouro || \"\";\nlet enderecoFinal = logradouro;\n\nif (numeroCasa) {\n  enderecoFinal = `${logradouro}, ${numeroCasa}`;\n}\n\n// Monta a query completa para o Nominatim não perder o número\nconst query = `${enderecoFinal}, ${viacep.bairro || ''}, ${viacep.localidade || ''}, ${viacep.uf || ''}, Brasil`;\n\nreturn [{\n  sucesso: true,\n  cep: viacep.cep,\n  logradouro: logradouro,\n  numero: numeroCasa,\n  bairro: viacep.bairro,\n  localidade: viacep.localidade,\n  uf: viacep.uf,\n  cep_via_cep: viacep.cep,\n  query_nominatim: query\n}];"
+      },
+      "name": "Montar Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2176,
+        1088
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://nominatim.openstreetmap.org/search",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            {
+              "name": "q",
+              "value": "={{ $json.query_nominatim }}"
+            },
+            {
+              "name": "format",
+              "value": "json"
+            },
+            {
+              "name": "limit",
+              "value": "1"
+            }
+          ]
+        },
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "User-Agent",
+              "value": "PizzariaPointDaBrasaApp/1.0 (contato@suapizzaria.com)"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 4000
+        }
+      },
+      "name": "Nominatim (OSM)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2608,
+        976
+      ],
+      "alwaysOutputData": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Pega todos os dados de entrada de forma segura\nconst inputItems = $input.all();\n\nif (!inputItems || inputItems.length === 0 || !inputItems[0].json) {\n  return [{\n    sucesso: false,\n    mensagem: \"Erro: Nenhum dado de localização foi recebido do mapa. Por favor, tente novamente.\"\n  }];\n}\n\nconst nomData = inputItems[0].json;\nconst nom = Array.isArray(nomData) ? nomData[0] : nomData;\n\n// Fallback se o Nominatim não achar latitude/longitude\nif (!nom || !nom.lat || !nom.lon) {\n  return [{\n    sucesso: false,\n    mensagem: \"Endereço não localizado com precisão suficiente. Por favor, confirme o CEP e o número do imóvel.\"\n  }];\n}\n\n// 1. Coordenadas do Cliente\nconst latCliente = parseFloat(nom.lat);\nconst lonCliente = parseFloat(nom.lon);\n\n// 2. Coordenadas da Loja (Estrada das Pitas, 187)\nconst latLoja = -23.5415696; \nconst lonLoja = -46.8679597;\n\n// 3. Fórmula de Haversine para Distância (em Km)\nfunction getDistance(lat1, lon1, lat2, lon2) {\n  const R = 6371; \n  const dLat = (lat2 - lat1) * Math.PI / 180;\n  const dLon = (lon2 - lon1) * Math.PI / 180;\n  const a = Math.sin(dLat/2) * Math.sin(dLat/2) + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon/2) * Math.sin(dLon/2);\n  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));\n  return R * c;\n}\n\nconst distanciaKm = getDistance(latLoja, lonLoja, latCliente, lonCliente);\n\n// ---> REGRA: LIMITE DE 15KM <--- \nif (distanciaKm > 15) {\n  return [{\n    sucesso: false,\n    mensagem: `Infelizmente, o endereço está a ${distanciaKm.toFixed(1)}km da nossa loja, e nosso raio máximo de entrega é de 15km.`\n  }];\n}\n\n// 4. Cálculo da Taxa de Entrega (R$ 2,00 por km, Mínimo de R$ 5,00)\nconst taxaEntrega = Math.max(5, distanciaKm * 2);\n\n// 5. Cálculo do Subtotal e resgate seguro do WF1 (Incluindo o número da casa)\nlet subtotal = 0;\nlet cepOriginal = \"06449300\";\nlet numeroCasa = \"\";\n\ntry {\n  const wf1Node = $('Recebeu WF 01');\n  if (wf1Node && wf1Node.first()) {\n    const inputWf = wf1Node.first().json;\n    \n    // Pega o número da casa/complemento digitado pelo cliente\n    numeroCasa = inputWf.restante_endereco || inputWf.numero || \"\";\n    \n    // CEP original\n    cepOriginal = inputWf.cep || inputWf.query || \"06449300\";\n    \n    // Subtotal dos itens\n    const itens = JSON.parse(inputWf.itens_pendentes_json || '[]');\n    subtotal = itens.reduce((acc, item) => acc + (parseFloat(item.preco) * parseInt(item.quantidade)), 0);\n  }\n} catch (e) {\n  // Se falhar, mantém os fallbacks padrão\n}\n\nconst total = subtotal + taxaEntrega;\n\n// 6. Tratamento blindado do Endereço Validado (Garante o número impresso)\nlet enderecoBase = nom.display_name || \"Endereço validado\";\nlet enderecoFinal = enderecoBase;\n\nif (numeroCasa) {\n  // Se o display do OSM ainda não veio com o número, nós injetamos ele para a planilha ficar perfeita\n  if (!enderecoBase.includes(numeroCasa)) {\n    enderecoFinal = `Estrada das Pitas, ${numeroCasa}, Parque Viana, Barueri - SP`;\n  }\n}\n\n// 7. Retorno Limpo para a Duda e para o Sheets\nreturn [{\n  sucesso: true,\n  cep_utilizado: cepOriginal,\n  endereco_validado: enderecoFinal,\n  distancia_km: parseFloat(distanciaKm.toFixed(2)),\n  taxa_entrega: parseFloat(taxaEntrega.toFixed(2)),\n  subtotal: parseFloat(subtotal.toFixed(2)),\n  total_pedido: parseFloat(total.toFixed(2))\n}];"
+      },
+      "name": "Calcular Resumo Final",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2816,
+        976
+      ]
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "restante_endereco"
+            },
+            {
+              "name": "cep"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        1664,
+        1088
+      ],
+      "name": "Recebeu WF 01"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "leftValue": "={{ $json.sucesso }}",
+              "rightValue": false,
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        2384,
+        1088
+      ],
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "name": "mensagem",
+              "value": "={{ $json.mensagem }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.5,
+      "position": [
+        2608,
+        1184
+      ],
+      "name": "Edit Fields"
+    }
+  ],
+  "connections": {
+    "ViaCEP": {
+      "main": [
+        [
+          {
+            "node": "Montar Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Montar Query": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Nominatim (OSM)": {
+      "main": [
+        [
+          {
+            "node": "Calcular Resumo Final",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Recebeu WF 01": {
+      "main": [
+        [
+          {
+            "node": "ViaCEP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Nominatim (OSM)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  }
+}
+

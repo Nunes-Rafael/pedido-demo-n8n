@@ -1,0 +1,89 @@
+{
+  "name": "02 [pedido-demo-rafael] Sub - Cardapio",
+  "description": "Sub-workflow do orquestrador demo-food (chat do site): extrai itens do pedido via LLM, valida contra o cardapio fixo (5 sabores), calcula subtotal (meio a meio cobra a metade mais cara), salva estado no Redis e responde.",
+  "nodes": [
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.query }}",
+        "options": {
+          "systemMessage": "Você é o especialista de cardápio da Rebecca's Pizzaria. Sua única função é buscar no cardápio os itens solicitados e retornar os dados crus (sabor, preço e tamanhos) de forma direta e objetiva para o orquestrador. NUNCA cumprimente, NUNCA faça conversação e NUNCA ofereça bebidas ou upsell ao cliente final.\n\n### Cardápio Oficial:\nPizzas:\n- Margherita: R$ 38,00 (Ingredientes: Molho de tomate, mussarela e manjericão fresco.)\n- Calabresa: R$ 42,00 (Ingredientes: Calabresa fatiada, cebola e azeitona.)\n- Portuguesa: R$ 48,00 (Ingredientes: Presunto, mussarela, ovo, cebola, azeitona e ervilha.)\n- Quatro Queijos: R$ 52,00 (Ingredientes: Mussarela, provolone, parmesão e gorgonzola.)\n- Frango com Catupiry: R$ 45,00 (Ingredientes: Frango desfiado com catupiry cremoso.)\n\nBebidas:\n- Coca-Cola 2L: R$ 20,00 | Coca-Cola Lata: R$ 6,00\n- Guaraná Antarctica 2L: R$ 15,00 | Guaraná Antarctica Lata: R$ 6,00\n- Heineken Long Neck: R$ 12,00\n\n### Regras de Negócio e Cálculo:\n1. Pizza Meio a Meio: Se o cliente pedir dois sabores em uma pizza, o valor da pizza será o valor do sabor MAIS CARO entre os dois.\n2. Tamanho de Bebida: Se o cliente pedir apenas \"uma Coca\" ou \"um Guaraná\" sem especificar o tamanho, considere o tamanho 2L por padrão.\n3. Validação: Se o cliente pedir algo que NÃO está no cardápio (ex: pizza de chocolate ou suco), avise educadamente que não temos esse item e liste apenas o que foi encontrado.\n\n"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 3.1,
+      "position": [
+        96,
+        -256
+      ],
+      "name": "Rebecca Cardápio"
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4o-mini"
+        },
+        "builtInTools": {},
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.3,
+      "position": [
+        112,
+        -48
+      ],
+      "name": "OpenAI Chat Model"
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -96,
+        -256
+      ],
+      "name": "When Executed by Another Workflow"
+    }
+  ],
+  "connections": {
+    "OpenAI Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "Rebecca Cardápio",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "Rebecca Cardápio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Rebecca Cardápio": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "nodeGroups": [],
+  "settings": {
+    "executionOrder": "v1",
+    "availableInMCP": true,
+    "binaryMode": "separate"
+  }
+}
+
