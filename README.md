@@ -81,9 +81,39 @@ Nenhuma credencial deve ser versionada neste repositório. Os exports publicados
 
 O checkout da demonstração deve registrar um pedido somente após confirmação explícita do cliente. A experiência pública do site não processa pagamento real.
 
-## Snapshots da UI
+## Visão dos workflows
 
-A pasta `docs/images` está reservada para capturas do canvas n8n, úteis para explicar a arquitetura no README. Elas podem ser adicionadas depois de uma revisão visual dos quatro workflows, sem incluir dados sensíveis na tela.
+### Workflows publicados
+
+![Lista de workflows publicados](docs/images/01-workflows-publicados.png)
+
+### Orquestrador da Rebecca
+
+![Orquestrador do atendimento](docs/images/02-orquestrador-rebecca.png)
+
+### Cardápio
+
+![Subworkflow de cardápio](docs/images/03-cardapio-rebecca.png)
+
+### Checkout
+
+![Subworkflow de checkout](docs/images/04-checkout.png)
+
+### Frete pelo CEP
+
+![Subworkflow de frete](docs/images/05-frete-cep.png)
+
+## Versionamento e operação
+
+O repositório é a fonte de histórico dos workflows exportados. Cada alteração relevante deve seguir este ciclo:
+
+1. Exportar o workflow atualizado do n8n.
+2. Remover credenciais, URLs internas e identificadores específicos do ambiente.
+3. Atualizar o JSON correspondente e registrar a mudança em um commit pequeno e descritivo.
+4. Revisar as conexões, nodes e parâmetros no diff antes do push.
+5. Importar o arquivo em um ambiente de validação, testar o fluxo e só então publicar a versão no n8n.
+
+O n8n continua sendo o ambiente de execução. O GitHub guarda o código de automação, a documentação e o histórico necessário para revisar, recuperar ou reproduzir a configuração. Credenciais e valores de produção permanecem configurados no n8n.
 
 ## Relação com o site
 
@@ -92,4 +122,3 @@ O frontend da demonstração vive no repositório [rafael-site](https://github.c
 ## Licença
 
 Uso pessoal e demonstrativo. Consulte o autor antes de reutilizar os fluxos em um contexto comercial.
-
